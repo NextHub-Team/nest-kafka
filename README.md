@@ -58,18 +58,71 @@ $ npm run test:e2e
 $ npm run test:cov
 ```
 
-## Deployment
 
-When you're ready to deploy your NestJS application to production, there are some key steps you can take to ensure it runs as efficiently as possible. Check out the [deployment documentation](https://docs.nestjs.com/deployment) for more information.
+## Kafka Configuration
 
-If you are looking for a cloud-based platform to deploy your NestJS application, check out [Mau](https://mau.nestjs.com), our official platform for deploying NestJS applications on AWS. Mau makes deployment straightforward and fast, requiring just a few simple steps:
+This project uses a configuration file (`kafka.config.ts`) to manage Kafka connection settings dynamically through environment variables.
 
-```bash
-$ npm install -g mau
-$ mau deploy
+### Configuration File (`kafka.config.ts`):
+
+```typescript
+import * as dotenv from 'dotenv';
+dotenv.config();
+
+export const kafkaConfig = {
+  client: {
+    brokers: [process.env.KAFKA_BROKER || 'next-hub.app:9092'],
+    clientId: process.env.KAFKA_CLIENT_ID || 'next-hub-consumer',
+  },
+  consumer: {
+    groupId: process.env.KAFKA_GROUP_ID || 'test-consumer-group',
+    allowAutoTopicCreation: true,
+    sessionTimeout: 30000,
+  },
+  topics: {
+    MyTopic: 'mytopic',
+  },
+};
 ```
 
-With Mau, you can deploy your application in just a few clicks, allowing you to focus on building features rather than managing infrastructure.
+### Topics
+
+Kafka topics are logical channels where messages are published and consumed. In this configuration, we have defined a topic named **`MyTopic`**. 
+
+- **MyTopic (`mytopic`)**: This is the primary topic used in the application for sending and receiving messages. 
+- You can modify or add more topics to the `topics` object based on your application's requirements.
+- Ensure that producers publish messages to this topic and consumers are subscribed to it to process messages efficiently.
+
+### Environment Variables:
+
+Create a `.env` file in the root directory and configure Kafka settings:
+
+```env
+KAFKA_BROKER=your-kafka-broker:9092
+KAFKA_CLIENT_ID=your-kafka-client-id
+KAFKA_GROUP_ID=your-kafka-consumer-group
+```
+
+If these variables are not provided, the default values in `kafka.config.ts` will be used.
+
+## Project Setup
+
+### Prerequisites
+
+- **Node.js** (v12 or higher)
+- **Kafka Broker** (running locally or on a remote server)
+  
+## Resources
+
+- [NestJS Documentation](https://docs.nestjs.com)
+- [KafkaJS Documentation](https://kafka.js.org)
+- [Discord Community](https://discord.gg/G7Qnnhy)
+- [NestJS Official Website](https://nestjs.com)
+
+
+
+
+
 
 ## Resources
 
