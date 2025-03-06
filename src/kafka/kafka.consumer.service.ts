@@ -72,9 +72,12 @@ export class KafkaConsumerService implements OnModuleInit, OnModuleDestroy {
       }
     } catch (error: unknown) {
       if (error instanceof Error) {
+        this.logger.log(" ************************", kafkaConfig.client.brokers)
+
         this.logger.error(
           `Kafka Consumer Error: ${error.message}`,
           error.stack || '',
+
         );
       } else {
         this.logger.error(`Kafka Consumer Error: ${String(error)}`);
