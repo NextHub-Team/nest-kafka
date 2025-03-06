@@ -47,12 +47,12 @@ export class KafkaConsumerService implements OnModuleInit, OnModuleDestroy {
       if (!this.isConnected) {
         await this.consumer.connect();
         await this.consumer.subscribe({
-          topic: kafkaConfig.topics.MyTopic,
+          topic: kafkaConfig.topics.postcomment,
           fromBeginning: true,
         });
 
         this.logger.log(
-          `Connected to Kafka and subscribed to topic: ${kafkaConfig.topics.MyTopic}`,
+          `Connected to Kafka and subscribed to topic: ${kafkaConfig.topics.postcomment}`,
         );
 
         await this.consumer.run({
