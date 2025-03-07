@@ -5,7 +5,7 @@ export const kafkaConfig = {
   client: {
     brokers: [process.env.KAFKA_BROKER || 'broker-exposed.command.verot.dev.vdp.vero.host:443'],
     clientId: process.env.KAFKA_CLIENT_ID || 'vault-kafka-cosnumer',
-    ssl: true,
+    ssl: false,
   },
   consumer: {
     groupId: process.env.KAFKA_GROUP_ID || 'vault-kafka-group',
