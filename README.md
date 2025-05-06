@@ -70,29 +70,97 @@ $ mau deploy
 
 With Mau, you can deploy your application in just a few clicks, allowing you to focus on building features rather than managing infrastructure.
 
-## Resources
+# Kafka Module Overview
 
-Check out a few resources that may come in handy when working with NestJS:
+This module implements a **Dedicated Topic Service** pattern using Kafka with NestJS. Each service handles one topic with its own consumer group, allowing independent scaling and clean separation of concerns.
 
-- Visit the [NestJS Documentation](https://docs.nestjs.com) to learn more about the framework.
-- For questions and support, please visit our [Discord channel](https://discord.gg/G7Qnnhy).
-- To dive deeper and get more hands-on experience, check out our official video [courses](https://courses.nestjs.com/).
-- Deploy your application to AWS with the help of [NestJS Mau](https://mau.nestjs.com) in just a few clicks.
-- Visualize your application graph and interact with the NestJS application in real-time using [NestJS Devtools](https://devtools.nestjs.com).
-- Need help with your project (part-time to full-time)? Check out our official [enterprise support](https://enterprise.nestjs.com).
-- To stay in the loop and get updates, follow us on [X](https://x.com/nestframework) and [LinkedIn](https://linkedin.com/company/nestjs).
-- Looking for a job, or have a job to offer? Check out our official [Jobs board](https://jobs.nestjs.com).
+---
 
-## Support
+## 📁 Directory Structure
 
-Nest is an MIT-licensed open source project. It can grow thanks to the sponsors and support by the amazing backers. If you'd like to join them, please [read more here](https://docs.nestjs.com/support).
+```bash
+src/communication/kafka
+├── config
+│   ├── kafka.config.ts              # Loads and validates Kafka environment variables
+│   └── kafka-config.type.ts         # Type definitions for Kafka configuration
+├── logger
+│   ├── kafka-logger.decorator.ts    # NestJS-compatible logger decorator for Kafka messages
+│   └── kafka-logger.ts              # Logger class for handling Kafka logs and events
+├── types
+│   ├── kafa-const.enum.ts           # Enumerations for default config values
+│   ├── kafa-const.type.ts           # Constants and fallback defaults
+│   └── kafka-interface.type.ts      # Shared interface types used across Kafka consumers
+├── utils                            # Utility functions/helpers (optional)
+├── kafka.consumer.ts                # Main consumer logic (create and consume topic messages)
+├── kafka.module.ts                  # KafkaModule that registers all providers
+├── kafka.processor.ts               # Handles actual business logic for messages
+└── kafka.service.ts                 # Service to initialize and shutdown Kafka consumer
+```
 
-## Stay in touch
+---
 
-- Author - [Kamil Myśliwiec](https://twitter.com/kammysliwiec)
-- Website - [https://nestjs.com](https://nestjs.com/)
-- Twitter - [@nestframework](https://twitter.com/nestframework)
+## 📦 Features
 
-## License
+* ✅ Dedicated consumer instance per topic
+* ✅ One consumer group per topic
+* ✅ Auto reconnect and retry on failure
+* ✅ Configurable SSL, partitions, commit settings
+* ✅ Clean and minimal structure (no over-splitting)
+* ✅ Pluggable processor logic per topic
+* ✅ Scalable per service (Kubernetes-ready)
 
-Nest is [MIT licensed](https://github.com/nestjs/nest/blob/master/LICENSE).
+---
+
+## 🎯 Kafka Consumption Strategy
+
+### **Dedicated Topic Service**
+
+* 🧩 One service = one topic
+* 🧵 One Kafka consumer per service
+* 📊 Each topic has its **own group ID**
+* 📈 Microservice pattern, allows **independent scaling**
+* 🛠️ Ideal for Kubernetes deployments with different replica counts
+
+### Diagram
+
+![Kafka Dedicated Topic Service Diagram](/mnt/data/A_2D_digital_diagram_illustrates_a_Kafka-based_mic.png)
+
+---
+
+## 🛠️ Design Pattern
+
+* NestJS Modules: Encapsulation via `KafkaModule`
+* Dependency Injection: For consumer, config, and logger
+* Clean Code: Limited file count, single-responsibility design
+* Observable: Ready for metrics/logging/health checks
+
+---
+
+## 🚀 Quickstart
+
+```ts
+// kafka.module.ts
+@Module({
+  providers: [KafkaService, KafkaProcessor, KafkaLogger, KafkaConfig],
+})
+export class KafkaModule {}
+
+// app.module.ts
+@Module({
+  imports: [KafkaModule],
+})
+export class AppModule {}
+```
+
+---
+
+## ✅ Good Practices
+
+* One consumer group per topic
+* Avoid mixing topics in one app
+* Always handle errors and retries
+* Ensure offset commits after processing
+
+---
+
+Feel free to scale each Kafka microservice independently based on load!

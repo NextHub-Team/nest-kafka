@@ -1,3 +1,5 @@
+import { KafkaConsumeMode } from '../types/kafa-const.enum';
+
 export interface KafkaSslConfig {
   ca: string;
   cert: string;
@@ -19,4 +21,6 @@ export interface KafkaConfig {
   heartbeatInterval: number;
   sessionTimeout: number;
   requestTimeout: number;
+  consumeMode?: KafkaConsumeMode;
+  batchHeartbeat?: boolean;
 }
