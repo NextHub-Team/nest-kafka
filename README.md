@@ -97,6 +97,7 @@ src/communication/kafka
 - [x] Clean and minimal structure (no over-splitting)
 - [x] Pluggable processor logic per topic
 - [x] Scalable per service (Kubernetes-ready)
+- [ ] Improve documentation for clarity, usability, and real-world integration guidance
 - [ ] BullMQ integration for async processing
 - [ ] Worker threads for CPU-intensive deserialization
 - [ ] Batch DB writes for improved throughput
