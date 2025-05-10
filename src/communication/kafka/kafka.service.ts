@@ -36,8 +36,8 @@ export class KafkaService implements OnModuleInit, OnModuleDestroy {
     await this.consumerService.onApplicationShutdown();
   }
 
-  healthCheck(): { status: string } {
+  healthCheck(): { status: boolean } {
     const isConnected = this.kafkaConnection.isConnected();
-    return { status: isConnected ? 'ok' : 'disconnected' };
+    return { status: isConnected };
   }
 }

@@ -55,5 +55,6 @@ export default registerAs<KafkaConfig>(
       (process.env.KAFKA_CONSUME_MODE as KafkaConsumeMode) ||
       KafkaConsumeMode.SINGLE,
     batchHeartbeat: parseBoolean(process.env.KAFKA_BATCH_HEARTBEAT, true),
+    maxPollInterval: parseNumber(process.env.KAFKA_MAX_POLL_INTERVAL_MS),
   }),
 );

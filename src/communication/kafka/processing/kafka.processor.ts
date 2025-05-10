@@ -1,76 +1,69 @@
-import { KafkaConsumer } from '@confluentinc/kafka-javascript';
-import { Injectable, Logger } from '@nestjs/common';
-import { Message } from '@confluentinc/kafka-javascript';
+import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
+import { bufferTime, Subject } from 'rxjs';
 import { KafkaMessageContext } from '../types/kafka-interface.type';
-import { KafkaDispatcherService } from './kafka.dispatcher';
-import { KafkaDeserializerService } from './kafka.deserializer';
 
-@Injectable()
-export class KafkaProcessor {
-  private readonly logger = new Logger(KafkaProcessor.name);
+abstract class KafkaBaseProcessor {
+  protected readonly logger = new Logger(this.constructor.name);
 
-  constructor(
-    private readonly dispatcher: KafkaDispatcherService,
-    private readonly deserializer: KafkaDeserializerService,
-  ) {}
-
-  /**
-   * Entry point to process an incoming Kafka message
-   */
-  async process(
-    message: Message,
-    context: KafkaMessageContext & {
-      consumer?: KafkaConsumer;
-      autoCommit?: boolean;
-    },
-  ): Promise<void> {
-    try {
-      if (!message.value) {
-        this.logger.warn(`Received null message on topic ${context.topic}`);
-        return;
-      }
-
-      const payload: unknown = this.deserializer.deserialize(
-        message.value,
-        context.topic,
-      );
-      const routeKey = this.resolveRouteKey(context);
-
-      this.logger.log(`Dispatching message to route: ${routeKey}`);
-      await this.dispatcher.dispatch(routeKey, payload, context);
-
-      if (!context.autoCommit && context.consumer) {
-        try {
-          context.consumer.commitMessage(message);
-          this.logger.debug(
-            `Manually committed offset ${message.offset} for ${context.topic}[${context.partition}]`,
-          );
-        } catch (commitErr) {
-          this.logger.error(
-            `Error committing offset ${message.offset} for ${context.topic}[${context.partition}]: ${
-              commitErr instanceof Error ? commitErr.message : commitErr
-            }`,
-            commitErr instanceof Error ? commitErr.stack : undefined,
-          );
-        }
-      }
-    } catch (error) {
-      this.logger.error(
-        `Error processing message at ${context.topic}[${context.partition}] offset ${context.offset}: ${
-          error instanceof Error ? error.message : error
-        }`,
-        error instanceof Error ? error.stack : undefined,
-      );
-    }
-  }
-
-  /**
-   * Resolve routing key from message context
-   */
-  private resolveRouteKey(context: KafkaMessageContext): string {
+  protected resolveRouteKey(context: KafkaMessageContext): string {
     if (!context.topic) {
       throw new Error('Unable to route message: topic name missing in context');
     }
     return context.topic;
+  }
+
+  abstract process(
+    context: KafkaMessageContext,
+    useBatch?: boolean,
+  ): Promise<void>;
+}
+
+@Injectable()
+export class KafkaProcessor extends KafkaBaseProcessor implements OnModuleInit {
+  private readonly message$ = new Subject<KafkaMessageContext>();
+  private readonly BATCH_SIZE = 100;
+  private readonly BUFFER_TIME_MS = 1000;
+
+  onModuleInit() {
+    this.message$
+      .pipe(bufferTime(this.BUFFER_TIME_MS, undefined, this.BATCH_SIZE))
+      .subscribe((batch) => {
+        void (async () => {
+          this.logger.debug(`Buffered ${batch.length} messages`);
+          try {
+            for (const message of batch) {
+              await this.process(message, false);
+            }
+            this.logger.debug(`Processed ${batch.length} messages`);
+          } catch (err) {
+            this.logger.error(
+              'Batch processing failed:',
+              err instanceof Error ? (err.stack ?? err.message) : String(err),
+            );
+          }
+        })();
+      });
+  }
+
+  // eslint-disable-next-line @typescript-eslint/require-await
+  async process(context: KafkaMessageContext, useBatch = false): Promise<void> {
+    if (useBatch) {
+      this.message$.next(context);
+      return;
+    }
+
+    try {
+      this.logger.debug(
+        `Processing message at ${context.topic}[${context.partition}] offset ${context.offset}`,
+      );
+      // Add real processing logic here
+    } catch (error) {
+      this.logger.error(
+        `Error processing message at ${context.topic}[${context.partition}] offset ${context.offset}: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+        error instanceof Error ? error.stack : undefined,
+      );
+    }
   }
 }

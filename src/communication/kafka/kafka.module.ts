@@ -5,15 +5,17 @@ import { KafkaConnection } from './kafka.connection';
 import { KafkaProcessor } from './processing/kafka.processor';
 import { KafkaDispatcherService } from './processing/kafka.dispatcher';
 import { KafkaDeserializerService } from './processing/kafka.deserializer';
+import { KafkaLogger } from './logger/kafka-logger';
 
 @Module({
   providers: [
     KafkaService,
     KafkaConsumerService,
-    KafkaConnection,
-    KafkaProcessor,
     KafkaDispatcherService,
     KafkaDeserializerService,
+    KafkaConnection,
+    KafkaProcessor,
+    KafkaLogger,
   ],
   exports: [KafkaService],
 })

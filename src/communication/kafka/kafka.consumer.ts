@@ -10,6 +10,8 @@ import { KafkaLogger } from './logger/kafka-logger';
 import { KafkaConfig } from './config/kafka-config.type';
 import { KafkaConnection } from './kafka.connection';
 import { KafkaConsumeMode } from './types/kafa-const.enum';
+import { KafkaMessageContext } from './types/kafka-interface.type';
+import { KafkaProcessor } from './processing/kafka.processor';
 
 @Injectable()
 export class KafkaConsumerService
@@ -20,11 +22,12 @@ export class KafkaConsumerService
   private isRunning = false;
   private heartbeatInterval: number;
   private kafkaConfig: KafkaConfig;
-
+  private readonly useBatchProcessing: boolean = true;
   constructor(
     private readonly configService: ConfigService,
     private readonly kafkaConnection: KafkaConnection,
     private readonly kafkaLogger: KafkaLogger,
+    private readonly processor: KafkaProcessor,
   ) {
     const rawConfig = this.configService.get<KafkaConfig>('kafka')!;
     this.kafkaConfig = {
@@ -45,56 +48,40 @@ export class KafkaConsumerService
       `Initializing Kafka consumer with topics: ${topicList.join(', ')}`,
     );
 
-    this.consumer = await this.kafkaConnection.createConsumer();
-    this.kafkaLogger.registerAllEvents(this.consumer);
-
-    try {
-      this.consumer.subscribe(topicList);
-      this.logger.log(`Subscribed to Kafka topics: ${topicList.join(', ')}`);
-    } catch (err) {
-      this.logger.error(
-        `Error subscribing to topics: ${(err as Error).message}`,
-      );
-    }
+    this.consumer = await this.kafkaConnection.createConsumer(this.kafkaLogger);
 
     this.run();
   }
 
   public run(): void {
-    // Step 5.3 - Subscribe
+    if (this.isRunning) {
+      this.logger.warn('Kafka consumer already running. Skipping re-run.');
+      return;
+    }
+    this.isRunning = true;
+
     const subscription = this.consumer.subscription();
     this.logger.log(
       `Current topic subscription: ${JSON.stringify(subscription)}`,
     );
 
-    const { consumeMode, batchHeartbeat } = this.kafkaConfig;
-    if (consumeMode === KafkaConsumeMode.BATCH) {
-      this.logger.log('Batch consumption mode enabled');
-      this.pollBatch(100); // default batch size
-    } else {
-      this.logger.log('Single message consumption mode enabled');
-      this.consumer.on('data', (message: Message) =>
-        this.handleMessage(message),
+    this.logger.log('Single message consumption mode enabled');
+    this.consumer.consume();
+    this.consumer.on('data', (message: Message) => {
+      this.logger.debug(
+        `Received Kafka message | topic: "${message.topic}", partition: ${message.partition}, offset: ${message.offset}`,
       );
-    }
+      this.handleMessage(message);
+    });
 
-    this.isRunning = true;
-
-    if (
-      consumeMode === KafkaConsumeMode.BATCH &&
-      batchHeartbeat &&
-      this.heartbeatInterval > 0
-    ) {
+    if (this.heartbeatInterval > 0) {
       setInterval(() => {
         if (this.consumer && this.isRunning) {
           this.logger.debug('Heartbeat interval active — consumer is alive');
-          // Note: KafkaConsumer does not expose a direct heartbeat method.
-          // This is a placeholder to simulate liveness checks or monitoring.
         }
       }, this.heartbeatInterval);
     }
 
-    // Step 5.2 - Register Events
     this.consumer.on('rebalance', (err, assignments) => {
       if (err) {
         this.logger.error(`Rebalance error: ${err.message}`);
@@ -119,86 +106,73 @@ export class KafkaConsumerService
   }
 
   private handleMessage(message: Message): void {
-    if (!message) return;
+    if (!message || !message.value) return;
 
-    // Step 5.1 - Initialize
-    this.logger.debug(
-      `Step 5.1 - Received message on topic ${message.topic}, partition ${message.partition}, offset ${message.offset}`,
-    );
-
-    try {
-      // Step 1: Initialize and Validate Message
-      if (!message.value) {
-        this.logger.warn('Received Kafka message without value');
-        return;
-      }
-
-      // Step 5.5 - Extract Context
-      const context = {
+    const context: KafkaMessageContext = {
+      topic: message.topic,
+      partition: message.partition,
+      offset: String(message.offset),
+      timestamp: String(message.timestamp ?? ''),
+      headers: message.headers?.reduce(
+        (acc, header) => {
+          Object.entries(header).forEach(([key, value]) => {
+            acc[key] = value?.toString();
+          });
+          return acc;
+        },
+        {} as Record<string, string | undefined>,
+      ),
+      value: message.value,
+      rawMessage: message,
+      consumer: {
         topic: message.topic,
         partition: message.partition,
-        offset: message.offset,
-        timestamp: message.timestamp,
-        headers: message.headers,
-      };
-
-      this.logger.debug(`Step 2 - Parsed context: ${JSON.stringify(context)}`);
-
-      // Step 5.6 - Dispatch Logic
-      const decoded = message.value.toString(); // placeholder for deserialization
-      this.logger.debug(
-        `Step 3 - Decoded message from topic ${message.topic}: ${decoded}`,
-      );
-
-      // Step 4: Dispatch to Message Processor
-      this.logger.debug(
-        `Step 4 - Dispatching message to handler for topic ${message.topic}`,
-      );
-
-      // Step 5: Commit Offset
-      if (!this.kafkaConfig.autoCommit) {
-        this.commitMessage(message);
-      }
-    } catch (err) {
-      // Step 5.7 - Error Handling
-      this.logger.error(`Failed to process message: ${(err as Error).message}`);
-    }
-    // Step 5.8 - Heartbeat (Implicit via .on('data'))
-  }
-
-  private commitMessage(message: Message): void {
-    try {
-      this.consumer.commitMessage(message);
-      this.logger.debug(
-        `Committed offset ${message.offset} for ${message.topic}[${message.partition}]`,
-      );
-    } catch (err) {
-      this.logger.error(
-        `Failed to commit offset ${message.offset} for ${message.topic}[${message.partition}]: ${
-          (err as Error).message
-        }`,
-      );
-    }
-  }
-
-  private pollBatch(batchSize: number): void {
-    const loop = async () => {
-      while (this.isRunning) {
-        this.consumer.consume(batchSize, (err, messages) => {
-          if (err) {
-            this.logger.error(`Batch consume error: ${err.message}`);
-            return;
-          }
-
-          for (const message of messages) {
-            this.handleMessage(message);
-          }
-        });
-
-        await new Promise((resolve) => setTimeout(resolve, 100));
-      }
+        offset: String(message.offset),
+        timestamp: String(message.timestamp ?? ''),
+        headers: message.headers?.reduce(
+          (acc, header) => {
+            Object.entries(header).forEach(([key, value]) => {
+              acc[key] = value?.toString();
+            });
+            return acc;
+          },
+          {} as Record<string, string | undefined>,
+        ),
+      },
+      autoCommit: this.kafkaConfig.autoCommit,
     };
-    void loop();
+
+    void (async () => {
+      try {
+        await this.processor.process(context, this.useBatchProcessing);
+      } catch (err: unknown) {
+        const errorMessage =
+          typeof err === 'object' && err !== null && 'message' in err
+            ? String((err as { message: unknown }).message)
+            : String(err);
+        this.logger.error(
+          `Failed to process message [${message.topic}:${message.partition}:${message.offset}]: ${errorMessage}`,
+        );
+      }
+    })();
+  }
+
+  private commit(context: KafkaMessageContext, message: Message): void {
+    if (!context.autoCommit && context.consumer) {
+      try {
+        this.consumer.commitMessage(message);
+        this.logger.debug(
+          `Manually committed offset ${message.offset} for ${context.topic}[${context.partition}]`,
+        );
+      } catch (commitErr) {
+        this.logger.error(
+          `Error committing offset ${message.offset} for ${context.topic}[${context.partition}]: ${
+            commitErr instanceof Error ? commitErr.message : commitErr
+          }`,
+          commitErr instanceof Error ? commitErr.stack : undefined,
+        );
+      }
+    }
   }
 
   async onApplicationShutdown(): Promise<void> {

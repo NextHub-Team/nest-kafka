@@ -23,4 +23,5 @@ export interface KafkaConfig {
   requestTimeout: number;
   consumeMode?: KafkaConsumeMode;
   batchHeartbeat?: boolean;
+  maxPollInterval?: number;
 }

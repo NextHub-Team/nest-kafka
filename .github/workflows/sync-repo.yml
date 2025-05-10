@@ -22,6 +22,7 @@ jobs:
       - name: Push filtered content to VeroSleeves (repo2)
         run: |
           cd ../filtered-export
+          last_msg=$(git -C ../nest-kafka log -1 --pretty=format:"%s")
           rm -rf .git
           git init
           git config --global user.name "github-actions"
@@ -30,5 +31,5 @@ jobs:
           git remote add origin https://x-access-token:${{ secrets.SECRET_TOKEN }}@github.com/Metapolitanltd/VeroSleeves.git
           git checkout -b main
           git add .
-          git commit -m "Sync Core from nest-kafka"
+          git commit -m "$last_msg"
           git push origin main --force
