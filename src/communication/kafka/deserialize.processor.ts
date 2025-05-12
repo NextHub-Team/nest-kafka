@@ -7,6 +7,7 @@ import { performance } from 'node:perf_hooks';
 import { KafkaMessageContext } from './types/kafka-interface.type';
 import { DEFAULT_KAFKA_MESSAGE_CONCURRENCY } from './types/kafa-const.type';
 import Redis from 'ioredis';
+import { QueueEvents } from 'bullmq';
 
 @Processor('kafka-deserialize')
 export class DeserializeProcessor
@@ -32,6 +33,25 @@ export class DeserializeProcessor
       this.logger.error(`Redis error: ${err.message}`),
     );
     this.redis.on('end', () => this.logger.warn('Redis connection closed'));
+
+    const queueEvents = new QueueEvents('kafka-deserialize', {
+      connection: {
+        host: this.configService.get<string>('REDIS_HOST', 'localhost'),
+        port: this.configService.get<number>('REDIS_PORT', 6379),
+      },
+    });
+
+    queueEvents.on('waiting', ({ jobId }) => {
+      this.logger.log(`Job ${jobId} is waiting to be processed`);
+    });
+
+    queueEvents.on('active', ({ jobId }) => {
+      this.logger.log(`Job ${jobId} is now active`);
+    });
+
+    queueEvents.on('completed', ({ jobId }) => {
+      this.logger.log(`Job ${jobId} has completed`);
+    });
   }
 
   // eslint-disable-next-line @typescript-eslint/require-await
@@ -41,7 +61,9 @@ export class DeserializeProcessor
 
   async process(job: Job<{ batch: KafkaMessageContext[] }>): Promise<any[]> {
     const { batch } = job.data;
-    this.logger.debug(`Deserializing batch of ${batch.length} messages...`);
+    this.logger.debug(
+      `Deserializing batch of ${batch.length} messages... | Job ID: ${job.id}`,
+    );
 
     if (this.redis.status !== 'ready') {
       this.logger.warn('Redis not ready, skipping batch');
