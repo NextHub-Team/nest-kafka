@@ -122,6 +122,7 @@ src/communication/kafka
 * 🛠️ Ideal for Kubernetes deployments with different replica counts
 
 
+
 ### Parallel Processing & K8s Scaling
 
 ```
@@ -154,6 +155,45 @@ src/communication/kafka
 Each consumer belongs to the same **Group ID** per topic.
 Only **1 consumer per partition** (Kafka guarantees).
 ```
+
+### BullMQ-Based Parallel Deserialization
+
+```
++------------------------------------------------+
+|              Kafka Consumer Service            |
+|  (buffers messages using RxJS: 1000/batch)     |
++--------------------------+---------------------+
+                           |
+                           v
+            +----------------------------------+
+            |   BullMQ Queue: kafka-deserialize |
+            +----------------------------------+
+                           |
+     +---------------------+--------------------+
+     |                     |                    |
++----------+        +-------------+       +-------------+
+| Worker #1|        | Worker #2   |       | Worker #N   |
+| (p-map x |        | (p-map x    |       | (p-map x    |
+| 20 msgs) |        | 20 msgs)    |       | 20 msgs)    |
++----------+        +-------------+       +-------------+
+```
+
+Each BullMQ worker handles one batch job (e.g. 1000 msgs), using `p-map` for parallel message deserialization.
+
+#### 🧩 Parallelism is controlled by:
+- `KAFKA_WORKER_CONCURRENCY=3`: The number of BullMQ jobs processed concurrently. Each worker runs in its own thread.
+- `KAFKA_MESSAGE_CONCURRENCY=30`: The number of messages processed in parallel within a single batch using `p-map`.
+
+🔁 Total system throughput = `KAFKA_WORKER_CONCURRENCY × KAFKA_MESSAGE_CONCURRENCY`
+
+📊 Example: With 3 workers and 30 parallel messages per worker, the system can process up to **90 messages simultaneously** per job cycle.
+
+### 🧠 Multi-Worker & Batch Concurrency
+
+- Workers run in parallel (configurable via `KAFKA_WORKER_CONCURRENCY`)
+- Each worker processes messages inside a batch using `p-map` (e.g. 20 at a time)
+- Fully scalable across threads, containers, or pods
+- Auto logs job duration and throughput
 
 ---
 
