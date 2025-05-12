@@ -1,21 +1,27 @@
 import { Module } from '@nestjs/common';
+import { BullModule } from '@nestjs/bullmq';
 import { KafkaService } from './kafka.service';
 import { KafkaConsumerService } from './kafka.consumer';
-import { KafkaConnection } from './kafka.connection';
-import { KafkaProcessor } from './processing/kafka.processor';
-import { KafkaDispatcherService } from './processing/kafka.dispatcher';
-import { KafkaDeserializerService } from './processing/kafka.deserializer';
-import { KafkaLogger } from './logger/kafka-logger';
+import { KafkaProcessor } from './kafka.processor';
+import { DeserializeProcessor } from './deserialize.processor';
 
 @Module({
+  imports: [
+    BullModule.forRoot({
+      connection: {
+        host: 'localhost',
+        port: 6379,
+      },
+    }),
+    BullModule.registerQueue({
+      name: 'kafka-deserialize',
+    }),
+  ],
   providers: [
     KafkaService,
     KafkaConsumerService,
-    KafkaDispatcherService,
-    KafkaDeserializerService,
-    KafkaConnection,
     KafkaProcessor,
-    KafkaLogger,
+    DeserializeProcessor,
   ],
   exports: [KafkaService],
 })

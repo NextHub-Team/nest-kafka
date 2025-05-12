@@ -24,4 +24,12 @@ export interface KafkaConfig {
   consumeMode?: KafkaConsumeMode;
   batchHeartbeat?: boolean;
   maxPollInterval?: number;
+  batchSize?: number;
+  bufferTimeMs?: number;
+  enableReconnect?: boolean;
+  restartOnFailure?: boolean;
+  enablePartitionLogging?: boolean;
+  disableHeartbeatLog?: boolean;
+  workerConcurrency?: number;
+  messageConcurrency?: number;
 }

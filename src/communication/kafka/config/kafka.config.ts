@@ -7,6 +7,11 @@ import {
   DEFAULT_KAFKA_HEARTBEAT_INTERVAL,
   DEFAULT_KAFKA_SESSION_TIMEOUT,
   DEFAULT_KAFKA_REQUEST_TIMEOUT,
+  DEFAULT_KAFKA_BATCH_SIZE,
+  DEFAULT_KAFKA_BATCH_HEARTBEAT,
+  DEFAULT_KAFKA_BUFFER_TIME_MS,
+  DEFAULT_KAFKA_WORKER_CONCURRENCY,
+  DEFAULT_KAFKA_MESSAGE_CONCURRENCY,
 } from '../types/kafa-const.type';
 import { KafkaConsumeMode } from '../types/kafa-const.enum';
 import {
@@ -18,7 +23,7 @@ import {
 export default registerAs<KafkaConfig>(
   'kafka',
   (): KafkaConfig => ({
-    clientId: process.env.KAFKA_CLIENT_ID || DEFAULT_KAFKA_CLIENT_ID,
+    clientId: `${process.env.KAFKA_CLIENT_ID || DEFAULT_KAFKA_CLIENT_ID}-${Math.random().toString(36).substring(2, 8)}`,
     brokers: (process.env.KAFKA_BROKER || '').split(','),
     groupId: process.env.KAFKA_GROUP_ID || DEFAULT_KAFKA_GROUP_ID,
     ssl: parseBoolean(process.env.KAFKA_ENABLE_SSL),
@@ -54,7 +59,34 @@ export default registerAs<KafkaConfig>(
     consumeMode:
       (process.env.KAFKA_CONSUME_MODE as KafkaConsumeMode) ||
       KafkaConsumeMode.SINGLE,
-    batchHeartbeat: parseBoolean(process.env.KAFKA_BATCH_HEARTBEAT, true),
+    batchHeartbeat: parseBoolean(
+      process.env.KAFKA_BATCH_HEARTBEAT,
+      DEFAULT_KAFKA_BATCH_HEARTBEAT,
+    ),
     maxPollInterval: parseNumber(process.env.KAFKA_MAX_POLL_INTERVAL_MS),
+    batchSize: parseNumber(
+      process.env.KAFKA_BATCH_SIZE,
+      DEFAULT_KAFKA_BATCH_SIZE,
+    ),
+    bufferTimeMs: parseNumber(
+      process.env.KAFKA_BUFFER_TIME_MS,
+      DEFAULT_KAFKA_BUFFER_TIME_MS,
+    ),
+    enableReconnect: parseBoolean(process.env.KAFKA_ENABLE_RECONNECT),
+    restartOnFailure: parseBoolean(
+      process.env.KAFKA_CONSUMER_RESTART_ON_FAILURE,
+    ),
+    enablePartitionLogging: parseBoolean(
+      process.env.KAFKA_ENABLE_PARTITION_LOGGING,
+    ),
+    disableHeartbeatLog: parseBoolean(process.env.KAFKA_DISABLE_HEARTBEAT_LOG),
+    workerConcurrency: parseNumber(
+      process.env.KAFKA_WORKER_CONCURRENCY,
+      DEFAULT_KAFKA_WORKER_CONCURRENCY,
+    ),
+    messageConcurrency: parseNumber(
+      process.env.KAFKA_MESSAGE_CONCURRENCY,
+      DEFAULT_KAFKA_MESSAGE_CONCURRENCY,
+    ),
   }),
 );

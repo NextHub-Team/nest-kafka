@@ -97,9 +97,8 @@ src/communication/kafka
 - [x] Clean and minimal structure (no over-splitting)
 - [x] Pluggable processor logic per topic
 - [x] Scalable per service (Kubernetes-ready)
-- [ ] Improve documentation for clarity, usability, and real-world integration guidance
-- [ ] BullMQ integration for async processing
-- [ ] Worker threads for CPU-intensive deserialization
+- [x] BullMQ integration for async processing
+- [ ] Support for standalone BullMQ workers (for decoupled and horizontally scalable batch processing)
 - [ ] Batch DB writes for improved throughput
 - [ ] Schema validation (e.g., Protobuf/Avro)
 - [ ] Rate limiting per topic
@@ -108,6 +107,7 @@ src/communication/kafka
 - [ ] Multi-tenant topic handling
 - [ ] Runtime consumer health checks
 - [ ] Generate stable per-topic group ID strategy (e.g., `consumer-my-topic-prod`)
+- [ ] Improve documentation for clarity, usability, and real-world integration guidanc  
 
 ---
 

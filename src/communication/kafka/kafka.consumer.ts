@@ -5,13 +5,18 @@ import {
   OnModuleInit,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { KafkaConsumer, Message } from '@confluentinc/kafka-javascript';
-import { KafkaLogger } from './logger/kafka-logger';
+import {
+  ConsumerTopicConfig,
+  KafkaConsumer,
+  Message,
+} from '@confluentinc/kafka-javascript';
 import { KafkaConfig } from './config/kafka-config.type';
-import { KafkaConnection } from './kafka.connection';
-import { KafkaConsumeMode } from './types/kafa-const.enum';
+import {
+  KafkaAutoOffsetReset,
+  KafkaConsumeMode,
+} from './types/kafa-const.enum';
 import { KafkaMessageContext } from './types/kafka-interface.type';
-import { KafkaProcessor } from './processing/kafka.processor';
+import { KafkaProcessor } from './kafka.processor';
 
 @Injectable()
 export class KafkaConsumerService
@@ -20,13 +25,13 @@ export class KafkaConsumerService
   private readonly logger = new Logger(KafkaConsumerService.name);
   private consumer: KafkaConsumer;
   private isRunning = false;
-  private heartbeatInterval: number;
   private kafkaConfig: KafkaConfig;
-  private readonly useBatchProcessing: boolean = true;
+  private clientId: string;
+  private isConsumerConnected = false;
+  private isInitialized = false;
+  private disconnecting = false;
   constructor(
     private readonly configService: ConfigService,
-    private readonly kafkaConnection: KafkaConnection,
-    private readonly kafkaLogger: KafkaLogger,
     private readonly processor: KafkaProcessor,
   ) {
     const rawConfig = this.configService.get<KafkaConfig>('kafka')!;
@@ -35,20 +40,30 @@ export class KafkaConsumerService
       consumeMode: rawConfig.consumeMode ?? KafkaConsumeMode.SINGLE,
       batchHeartbeat: rawConfig.batchHeartbeat ?? true,
     };
+    this.clientId = this.kafkaConfig.clientId;
   }
 
   async onModuleInit(): Promise<void> {
-    const config = this.kafkaConfig;
+    if (this.isInitialized || this.isRunning) {
+      this.logger.warn('Consumer already initialized or running. Skipping...');
+      return;
+    }
+    this.isInitialized = true;
+
     const topicMap = this.kafkaConfig.topics;
     const topicList = Object.values(topicMap);
-
-    this.heartbeatInterval = config.heartbeatInterval;
 
     this.logger.log(
       `Initializing Kafka consumer with topics: ${topicList.join(', ')}`,
     );
 
-    this.consumer = await this.kafkaConnection.createConsumer(this.kafkaLogger);
+    if (this.consumer) {
+      this.logger.warn('Existing consumer instance found. Disconnecting...');
+      await this.disconnect();
+      this.logger.log('Previous Kafka consumer instance disconnected.');
+    }
+
+    await this.createConsumer();
 
     this.run();
   }
@@ -65,21 +80,32 @@ export class KafkaConsumerService
       `Current topic subscription: ${JSON.stringify(subscription)}`,
     );
 
-    this.logger.log('Single message consumption mode enabled');
-    this.consumer.consume();
-    this.consumer.on('data', (message: Message) => {
-      this.logger.debug(
-        `Received Kafka message | topic: "${message.topic}", partition: ${message.partition}, offset: ${message.offset}`,
-      );
-      this.handleMessage(message);
-    });
+    this.logger.log(
+      `${this.kafkaConfig.consumeMode} message consumption mode enabled`,
+    );
 
-    if (this.heartbeatInterval > 0) {
-      setInterval(() => {
-        if (this.consumer && this.isRunning) {
-          this.logger.debug('Heartbeat interval active — consumer is alive');
-        }
-      }, this.heartbeatInterval);
+    if (this.kafkaConfig.consumeMode === KafkaConsumeMode.SINGLE) {
+      this.consumer.consume();
+      this.consumer.on('data', (message: Message) => {
+        this.logger.debug(
+          `Received Kafka message | topic: "${message.topic}", partition: ${message.partition}, offset: ${message.offset}, consumerId: ${this.clientId}`,
+        );
+        this.handleMessage(message);
+      });
+    }
+
+    if (this.kafkaConfig.consumeMode === KafkaConsumeMode.BATCH) {
+      this.consumer.consume();
+      this.consumer.on('data', (message: Message) => {
+        this.logger.debug(
+          `Received Kafka message | topic: "${message.topic}", partition: ${message.partition}, offset: ${message.offset}, consumerId: ${this.clientId}`,
+        );
+        this.handleMessage(message);
+      });
+
+      if (this.kafkaConfig.batchHeartbeat) {
+        this.logger.debug('Batch heartbeat is enabled.');
+      }
     }
 
     this.consumer.on('rebalance', (err, assignments) => {
@@ -144,7 +170,10 @@ export class KafkaConsumerService
 
     void (async () => {
       try {
-        await this.processor.process(context, this.useBatchProcessing);
+        await this.processor.process(
+          context,
+          this.kafkaConfig.consumeMode === KafkaConsumeMode.BATCH,
+        );
       } catch (err: unknown) {
         const errorMessage =
           typeof err === 'object' && err !== null && 'message' in err
@@ -175,16 +204,127 @@ export class KafkaConsumerService
     }
   }
 
-  async onApplicationShutdown(): Promise<void> {
-    // Step 5.10 - Graceful Close
-    if (this.consumer && this.isRunning) {
-      this.logger.log('Shutting down Kafka consumer...');
-      await new Promise<void>((resolve) => {
+  async disconnect(): Promise<void> {
+    if (this.consumer && !this.disconnecting) {
+      this.disconnecting = true;
+      const start = Date.now();
+      this.logger.log('Kafka consumer disconnect initiated...');
+      return new Promise((resolve) => {
+        this.consumer.unsubscribe?.();
         this.consumer.disconnect(() => {
           this.logger.log('Kafka consumer disconnected');
+          this.isConsumerConnected = false;
+          this.isRunning = false;
+          this.isInitialized = false;
+          this.disconnecting = false;
+          const elapsed = Date.now() - start;
+          this.logger.log(
+            `Kafka consumer disconnect completed in ${elapsed}ms`,
+          );
           resolve();
         });
       });
     }
+  }
+
+  // eslint-disable-next-line @typescript-eslint/require-await
+  async isConnected(): Promise<boolean> {
+    return this.isConsumerConnected;
+  }
+
+  async createConsumer(): Promise<KafkaConsumer> {
+    const clientConfig = {
+      'bootstrap.servers': this.kafkaConfig.brokers.join(','),
+      'client.id': this.kafkaConfig.clientId,
+      'group.id': this.kafkaConfig.groupId,
+      'enable.auto.commit': this.kafkaConfig.autoCommit,
+      'request.timeout.ms': this.kafkaConfig.requestTimeout,
+      'session.timeout.ms': this.kafkaConfig.sessionTimeout,
+      'heartbeat.interval.ms': this.kafkaConfig.heartbeatInterval,
+      'max.poll.interval.ms': this.kafkaConfig.maxPollInterval,
+      ...(this.kafkaConfig.ssl && {
+        'security.protocol': 'ssl',
+        'ssl.ca.location': this.kafkaConfig.sslOptions.ca,
+        'ssl.certificate.location': this.kafkaConfig.sslOptions.cert,
+        'ssl.key.location': this.kafkaConfig.sslOptions.key,
+        'ssl.endpoint.identification.algorithm': this.kafkaConfig.sslOptions
+          .rejectUnauthorized
+          ? 'https'
+          : undefined,
+      }),
+    };
+
+    const topicOptions: ConsumerTopicConfig = {
+      'auto.offset.reset': this.kafkaConfig.offsetReset as KafkaAutoOffsetReset,
+    };
+
+    const consumer = new KafkaConsumer(clientConfig, topicOptions);
+
+    return new Promise((resolve, reject) => {
+      consumer.connect();
+
+      // eslint-disable-next-line @typescript-eslint/no-misused-promises, @typescript-eslint/require-await
+      consumer.on('ready', async () => {
+        this.logger.log('Kafka consumer is connected and ready.');
+        this.consumer = consumer;
+        this.isConsumerConnected = true;
+        consumer.subscribe(
+          this.kafkaConfig.topics ? Object.values(this.kafkaConfig.topics) : [],
+        );
+        this.logger.log(
+          `Subscribed to Kafka topics: ${Object.values(this.kafkaConfig.topics).join(', ')}`,
+        );
+
+        const assignments = consumer.assignments();
+        this.logger.debug(
+          `🔗 Assigned partitions: ${JSON.stringify(assignments)}`,
+        );
+
+        resolve(consumer);
+        this.logger.log(
+          `Consumer ready. Group ID: ${this.kafkaConfig.groupId}`,
+        );
+      });
+
+      consumer.on('event.error', (err: unknown) => {
+        const errorMessage =
+          typeof err === 'object' && err !== null && 'message' in err
+            ? String((err as { message: string }).message)
+            : String(err);
+        this.logger.error(`Kafka connection error: ${errorMessage}`);
+        reject(new Error(errorMessage));
+      });
+
+      consumer.on('disconnected', () => {
+        this.logger.warn('Kafka consumer has disconnected.');
+        this.isConsumerConnected = false;
+      });
+
+      consumer.on('connection.failure', () => {
+        void (async () => {
+          this.logger.error(
+            'connection failure detected. Attempting to reconnect once...',
+          );
+          try {
+            await this.createConsumer();
+            this.logger.log('consumer reconnected successfully.');
+          } catch (error) {
+            const errMsg =
+              typeof error === 'object' && error !== null && 'message' in error
+                ? String((error as { message: string }).message)
+                : String(error);
+            this.logger.error(`Kafka reconnection failed: ${errMsg}`);
+          }
+        })();
+      });
+    });
+  }
+
+  async onApplicationShutdown(): Promise<void> {
+    if (this.consumer && this.isRunning) {
+      this.logger.log('Shutting down Kafka consumer...');
+      await this.disconnect();
+    }
+    // isRunning and isInitialized are now reset in disconnect()
   }
 }
